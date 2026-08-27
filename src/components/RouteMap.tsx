@@ -369,15 +369,15 @@ export default function RouteMap({
       const inZone = !activeZone || zoneOf(s.seq) === activeZone;
       const icon = L.divIcon({
         className: `seq-pin-wrapper${inZone ? "" : " seq-muted"}`,
-        html: `<div class="seq-pin${off ? " seq-pin-offroad" : ""}">${s.seq || "?"}${
+        html: `<div class="seq-pin${off ? " seq-pin-offroad" : ""}"><span class="seq-pin-order">${s.sequenceOrder}</span><span class="seq-pin-sep">·</span>${s.seq || "?"}${
           off ? " ↗" : ""
         }</div>`,
-        iconSize: [46, 26],
-        iconAnchor: [23, 26],
+        iconSize: [62, 26],
+        iconAnchor: [31, 26],
       });
       L.marker([s.jLat, s.jLng], { icon })
         .bindPopup(
-          `<strong>SEQ ${s.seq}</strong><br/>PAN ${s.pan}${
+          `<strong>Stop #${s.sequenceOrder} · SEQ ${s.seq}</strong><br/>PAN ${s.pan}${
             off ? `<br/><em>Set back ${Math.round(off.distance)} m from the road</em>` : ""
           }`,
         )

@@ -1,7 +1,7 @@
 /** GeoNB parcel lookup helpers (ArcGIS REST). */
 
 export const PARCEL_LAYER_URL =
-  "https://geonb.snb.ca/arcgis/rest/services/GeoNB_SNB_Parcels/MapServer/0";
+  "https://geonb.snb.ca/arcgis/rest/services/GeoNB_SNB_Parcels/FeatureServer/0";
 
 /** GeoNB's parcel layer exposes the property identifier as PID (PAN in our CSV). */
 export const PAN_FIELD = "PID";
@@ -20,6 +20,17 @@ type ArcGisFeature = {
   };
 };
 
+type GeoJsonFeature = {
+  type: string;
+  properties?: Record<string, unknown>;
+  geometry?: GeoJSON.Geometry;
+};
+
+type GeoJsonFeatureCollection = {
+  type: "FeatureCollection";
+  features?: GeoJsonFeature[];
+};
+
 function centroidOfRings(rings: [number, number][][]): [number, number] | null {
   const ring = rings[0];
   if (!ring?.length) return null;
@@ -30,6 +41,49 @@ function centroidOfRings(rings: [number, number][][]): [number, number] | null {
     y += py;
   }
   return [y / ring.length, x / ring.length];
+}
+
+/** Extract a [lat, lng] centroid from a GeoJSON geometry (Polygon or Point). */
+function centroidOfGeoJson(geometry: GeoJSON.Geometry | undefined): [number, number] | null {
+  if (!geometry) return null;
+  if (geometry.type === "Point") {
+    const [lng, lat] = geometry.coordinates as [number, number];
+    if (Number.isFinite(lat) && Number.isFinite(lng)) return [lat, lng];
+    return null;
+  }
+  if (geometry.type === "Polygon") {
+    const ring = geometry.coordinates[0];
+    if (!ring?.length) return null;
+    let x = 0;
+    let y = 0;
+    for (const [px, py] of ring) {
+      x += px;
+      y += py;
+    }
+    return [y / ring.length, x / ring.length];
+  }
+  if (geometry.type === "MultiPolygon") {
+    const ring = geometry.coordinates[0]?.[0];
+    if (!ring?.length) return null;
+    let x = 0;
+    let y = 0;
+    for (const [px, py] of ring) {
+      x += px;
+      y += py;
+    }
+    return [y / ring.length, x / ring.length];
+  }
+  return null;
+}
+
+/** Extract [lat, lng] rings from a GeoJSON Polygon/MultiPolygon. */
+function ringsFromGeoJson(geometry: GeoJSON.Geometry | undefined): [number, number][][] | null {
+  if (!geometry) return null;
+  if (geometry.type === "Polygon") return geometry.coordinates as [number, number][][];
+  if (geometry.type === "MultiPolygon") {
+    return (geometry.coordinates as [number, number][][][]).flat() as [number, number][][];
+  }
+  return null;
 }
 
 function chunk<T>(arr: T[], size: number): T[][] {
@@ -55,22 +109,21 @@ export async function lookupPans(
       outFields: PAN_FIELD,
       returnGeometry: "true",
       outSR: "4326",
-      f: "json",
+      f: "geojson",
     });
     try {
       const res = await fetch(`${PARCEL_LAYER_URL}/query?${params.toString()}`);
       if (res.ok) {
-        const data = (await res.json()) as { features?: ArcGisFeature[] };
-        for (const f of data.features ?? []) {
-          const attrs = f.attributes ?? {};
-          const pan = String(attrs[PAN_FIELD] ?? attrs["PAN"] ?? attrs["pan"] ?? "").trim();
-          if (!pan) continue;
-          let point: [number, number] | null = null;
-          if (f.geometry?.rings) point = centroidOfRings(f.geometry.rings);
-          else if (typeof f.geometry?.x === "number" && typeof f.geometry?.y === "number")
-            point = [f.geometry.y, f.geometry.x];
-          if (!point) continue;
-          matched.set(pan, { pan, lat: point[0], lng: point[1] });
+        const contentType = res.headers.get("content-type") ?? "";
+        if (contentType.includes("application/json") || contentType.includes("geojson")) {
+          const data = (await res.json()) as GeoJsonFeatureCollection;
+          for (const f of data.features ?? []) {
+            const pan = String(f.properties?.[PAN_FIELD] ?? f.properties?.["PAN"] ?? f.properties?.["pan"] ?? "").trim();
+            if (!pan) continue;
+            const point = centroidOfGeoJson(f.geometry);
+            if (!point) continue;
+            matched.set(pan, { pan, lat: point[0], lng: point[1] });
+          }
         }
       }
     } catch (err) {
@@ -106,15 +159,15 @@ export async function lookupPanPolygons(pans: string[]): Promise<Map<string, Pan
       outFields: PAN_FIELD,
       returnGeometry: "true",
       outSR: "4326",
-      f: "json",
+      f: "geojson",
     });
     try {
       const res = await fetch(`${PARCEL_LAYER_URL}/query?${params.toString()}`);
       if (!res.ok) continue;
-      const data = (await res.json()) as { features?: ArcGisFeature[] };
+      const data = (await res.json()) as GeoJsonFeatureCollection;
       for (const f of data.features ?? []) {
-        const pan = String(f.attributes?.[PAN_FIELD] ?? f.attributes?.["PAN"] ?? f.attributes?.["pan"] ?? "").trim();
-        const rings = f.geometry?.rings;
+        const pan = String(f.properties?.[PAN_FIELD] ?? f.properties?.["PAN"] ?? f.properties?.["pan"] ?? "").trim();
+        const rings = ringsFromGeoJson(f.geometry);
         if (!pan || !rings?.length) continue;
         out.set(pan, {
           pan,
@@ -147,15 +200,15 @@ export async function fetchParcelsInBounds(
     returnGeometry: "true",
     outSR: "4326",
     resultRecordCount: String(maxRecords),
-    f: "json",
+    f: "geojson",
   });
   try {
     const res = await fetch(`${PARCEL_LAYER_URL}/query?${params.toString()}`);
     if (!res.ok) return out;
-    const data = (await res.json()) as { features?: ArcGisFeature[] };
+    const data = (await res.json()) as GeoJsonFeatureCollection;
     for (const f of data.features ?? []) {
-      const pan = String(f.attributes?.[PAN_FIELD] ?? f.attributes?.["PAN"] ?? f.attributes?.["pan"] ?? "").trim();
-      const rings = f.geometry?.rings;
+      const pan = String(f.properties?.[PAN_FIELD] ?? f.properties?.["PAN"] ?? f.properties?.["pan"] ?? "").trim();
+      const rings = ringsFromGeoJson(f.geometry);
       if (!rings?.length) continue;
       const key = pan || `${rings[0]?.[0]?.[0]},${rings[0]?.[0]?.[1]}`;
       out.set(key, {

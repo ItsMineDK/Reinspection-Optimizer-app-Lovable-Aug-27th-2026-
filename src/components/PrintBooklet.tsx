@@ -30,9 +30,9 @@ function PrintMap({ stops, polyline, tall }: MapPageProps) {
       L.marker([s.jLat, s.jLng], {
         icon: L.divIcon({
           className: "seq-pin-wrapper",
-          html: `<div class="seq-pin">${s.seq || "?"}</div>`,
-          iconSize: [46, 22],
-          iconAnchor: [23, 22],
+          html: `<div class="seq-pin"><span class="seq-pin-order">${s.sequenceOrder}</span><span class="seq-pin-sep">·</span>${s.seq || "?"}</div>`,
+          iconSize: [62, 22],
+          iconAnchor: [31, 22],
         }),
       }).addTo(map);
     });
@@ -54,6 +54,7 @@ function Manifest({ stops, columns = 1 }: { stops: Stop[]; columns?: number }) {
       <table>
         <thead>
           <tr>
+            <th>#</th>
             <th>New SEQ</th>
             <th>PAN</th>
             <th>Done</th>
@@ -62,6 +63,7 @@ function Manifest({ stops, columns = 1 }: { stops: Stop[]; columns?: number }) {
         <tbody>
           {stops.map((s) => (
             <tr key={s.id}>
+              <td className="mono">{s.sequenceOrder}</td>
               <td className="mono">{s.seq || "—"}</td>
               <td className="mono">{s.pan || "—"}</td>
               <td className="checkbox">[&nbsp;&nbsp;]</td>

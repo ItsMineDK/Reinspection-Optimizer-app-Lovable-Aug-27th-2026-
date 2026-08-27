@@ -6,6 +6,8 @@ export type Stop = {
   lng: number;
   jLat: number;
   jLng: number;
+  /** 1-based position in the sorted sequence order. */
+  sequenceOrder: number;
   /** Resolved civic street address, when known. */
   address?: string;
 };
@@ -89,7 +91,7 @@ export function compareSeq(a: string, b: string) {
 const JITTER = 0.00015;
 
 /** Sort by SEQ, then jitter markers that share exact duplicate coordinates. */
-export function prepareStops(raw: Omit<Stop, "jLat" | "jLng" | "id">[]): Stop[] {
+export function prepareStops(raw: Omit<Stop, "jLat" | "jLng" | "id" | "sequenceOrder">[]): Stop[] {
   const sorted = [...raw].sort((a, b) => compareSeq(a.seq, b.seq));
   const seen = new Map<string, number>();
   return sorted.map((s, i) => {
@@ -103,7 +105,7 @@ export function prepareStops(raw: Omit<Stop, "jLat" | "jLng" | "id">[]): Stop[] 
       jLat = s.lat + Math.sin(angle) * JITTER * Math.ceil(n / 6);
       jLng = s.lng + Math.cos(angle) * JITTER * Math.ceil(n / 6);
     }
-    return { ...s, id: `${s.pan}-${s.seq}-${i}`, jLat, jLng };
+    return { ...s, id: `${s.pan}-${s.seq}-${i}`, sequenceOrder: i + 1, jLat, jLng };
   });
 }
 
